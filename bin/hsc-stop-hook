@@ -1,0 +1,33 @@
+#!/usr/bin/env python3
+import json, os, sys, time, traceback
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from hsc import core
+
+
+def log(msg):
+    try:
+        os.makedirs(core.STATE_DIR, exist_ok=True)
+        with open(os.path.join(core.STATE_DIR, "hook.log"), "a") as f:
+            f.write("%s %s\n" % (time.strftime("%F %T"), msg))
+    except OSError:
+        pass
+
+
+debug = os.environ.get("HSC_DEBUG") == "1"
+try:
+    data = json.load(sys.stdin)
+    sid = data["session_id"]
+    state = core.read_state(core.STATE_DIR, sid)
+    pane = os.environ.get("HERDR_PANE_ID")
+    out = core.decide_stop(state, bool(data.get("stop_hook_active")), pane=pane,
+                           low=float(os.environ.get("HSC_LOW_PCT", core.LOW_PCT)),
+                           pre_skill=os.environ.get("HSC_PRE_COMPACT_SKILL", core.PRE_COMPACT_SKILL),
+                           compact_cmd=os.path.join(os.path.dirname(os.path.realpath(__file__)), "hsc-compact"))
+    if debug:
+        log("sid=%s pct=%s pane=%s active=%s -> %s" % (sid, state.get("pct"), pane, data.get("stop_hook_active"), "block" if out else "allow"))
+    if out:
+        core.write_state(core.STATE_DIR, sid, asked_pct=state.get("pct"))
+        print(json.dumps(out))
+except Exception:
+    log("ERROR " + traceback.format_exc().replace("\n", " | "))
+sys.exit(0)

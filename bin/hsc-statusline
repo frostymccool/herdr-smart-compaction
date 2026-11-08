@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+import json, os, subprocess, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from hsc import core
+
+raw = sys.stdin.read()
+try:
+    data = json.loads(raw)
+except ValueError:
+    data = {}
+info = core.parse_statusline(data)
+if info["session_id"] and info["pct"] is not None:
+    try:
+        core.write_state(core.STATE_DIR, info["session_id"], pct=info["pct"], window=info["window"])
+    except (OSError, ValueError):
+        pass
+
+badge = "SC %s%%" % round(info["pct"]) if info["pct"] is not None else "SC --"
+badge = "\033[95m⟳ %s\033[0m" % badge
+wrapped = os.environ.get("HSC_WRAP_CMD")
+out = ""
+if wrapped:
+    try:
+        out = subprocess.run(wrapped, shell=True, input=raw, capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+out = out.rstrip("\n")
+sys.stdout.write((out + " " + badge if out else badge) + "\n")

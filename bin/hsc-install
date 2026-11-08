@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Install/uninstall herdr-smart-compaction in a Claude Code settings.json. Dry-run unless --apply."""
+import argparse, difflib, json, os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from hsc import installer
+
+ap = argparse.ArgumentParser(description=__doc__)
+ap.add_argument("--settings", default=os.path.expanduser("~/.claude/settings.json"))
+ap.add_argument("--apply", action="store_true", help="write changes (default: show diff only)")
+ap.add_argument("--uninstall", action="store_true")
+ap.add_argument("--backstop", type=int, default=60, help="auto-compact backstop percent; 0 to skip")
+ap.add_argument("--wrap", help="when the target file has no statusLine, keep showing this command's output (e.g. your global statusLine)")
+ap.add_argument("--pre-skill", help="skill the agent should run before compacting (e.g. sync-session); off by default")
+a = ap.parse_args()
+try:
+    cur = installer.load(a.settings)
+    new, notes = (installer.uninstall(cur, a.backstop) if a.uninstall else installer.install(cur, backstop=a.backstop, wrap=a.wrap, pre_skill=a.pre_skill))
+except (ValueError, OSError) as e:
+    sys.exit("hsc-install: cannot read %s: %s" % (a.settings, e))
+for n in notes:
+    print(" -", n)
+d = list(difflib.unified_diff(json.dumps(cur, indent=2).splitlines(), json.dumps(new, indent=2).splitlines(), "current", "proposed", lineterm=""))
+print("\n".join(d) if d else "(no changes)")
+if a.apply and d:
+    print("backup:", installer.save(a.settings, new))
+elif d:
+    print("\ndry run - re-run with --apply to write", a.settings)
