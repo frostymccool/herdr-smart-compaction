@@ -1,6 +1,6 @@
 ---
 name: herdr-smart-compaction
-description: Lets Claude Code sessions running in herdr panes compact their own context at natural stopping points when usage is 40-60%, instead of mid-task or never. A statusLine script records context %, a Stop hook asks the agent whether its task series is finished and no follow-up needs the current context, and a helper waits for the pane to go idle then types /compact via herdr. Includes a dry-run-first installer and a 60% auto-compact backstop. Use when - 'compact my sessions automatically', 'keep context usage low', 'auto compact at a stopping point', 'smart compaction', 'install/uninstall smart compaction', or when a herdr-hosted session is repeatedly hitting high context usage.
+description: Lets Claude Code sessions running in herdr panes compact their own context at natural stopping points when usage is 40-60%, instead of mid-task or never. A statusLine script records context %, a Stop hook asks the agent whether its task series is finished and no follow-up needs the current context, and a helper waits for the pane to go idle then types /compact via herdr. Includes a dry-run-first installer and a 60% auto-compact backstop. Use when - 'compact my sessions automatically', 'keep context usage low', 'auto compact at a stopping point', 'smart compaction', 'install/uninstall smart compaction', 'change the compaction range/threshold', or when a herdr-hosted session is repeatedly hitting high context usage.
 compatibility: Requires HERDR_ENV=1 (a Claude Code session inside a herdr pane), the `herdr` CLI, python3 3.9+. Edits only the Claude Code settings.json you point it at (backed up first).
 license: MIT
 metadata:
@@ -29,6 +29,23 @@ Scope is the **active session only** (this session's project settings). Do not o
 - **Guided:** before asking to confirm, show (1) the files that will be modified in the project (the settings file, plus its timestamped backup), (2) the hook and statusLine/env entries that will be added, (3) a 3-line summary of what the skill does (records context %; at 40%+ asks the agent to compact at a natural stopping point; 60% auto-compact backstop). Skip the raw JSON diff unless asked. Then apply on a yes.
 
 Installing into *another* session is a separate, explicit request and follows the protocol below.
+
+## Changing the range (`bin/hsc-config`)
+
+Default is compact from 40% with a 60% built-in backstop. **Always per project** (the active session's project) unless the user explicitly asks for global.
+
+When asked ("make it compact earlier", "change the range", "30 to 50"): ask one question if no numbers were given, preset or custom? Presets: `eager` 30-50, `balanced` 40-60 (default), `relaxed` 50-70.
+
+```bash
+bin/hsc-config --show                      # effective range for this project, with token equivalent
+bin/hsc-config --preset eager              # or: --low 35 --backstop 55
+bin/hsc-config --reset                     # drop the project setting (falls back to global/default)
+```
+
+- Rules: whole numbers 10-90, backstop at least 10 points above low. Bad input is rejected and nothing is written.
+- The low threshold is stored in `<project>/.claude/hsc.json` and applies on the very next Stop (no restart). The backstop is the Claude Code env `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` in `<project>/.claude/settings.local.json` (backed up first) and only takes effect after that session restarts; the command says so. Offer the restart via `hsc-restart`.
+- The badge shows the active range, e.g. `⟳ SC 42% (40-60)`.
+- **Global** (`--global`, only on explicit request): the first call lists every herdr Claude session with its project, whether smart compaction is active there, and its current range -> the range after the change (projects with their own setting stay unchanged) and exits without applying. Show that list to the user; only after they confirm re-run with `--confirmed`. It writes `~/.config/herdr-smart-compaction/config.json` and the user-level backstop env. Precedence: env `HSC_LOW_PCT` > project > global > default.
 
 ## Install (opt-in; dry-run by default)
 

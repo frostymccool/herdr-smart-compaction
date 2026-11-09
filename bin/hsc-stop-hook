@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import json, os, sys, time, traceback
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
-from hsc import core
+from hsc import config, core
 
 
 def log(msg):
@@ -20,7 +20,7 @@ try:
     state = core.read_state(core.STATE_DIR, sid)
     pane = os.environ.get("HERDR_PANE_ID")
     out = core.decide_stop(state, bool(data.get("stop_hook_active")), pane=pane,
-                           low=float(os.environ.get("HSC_LOW_PCT", core.LOW_PCT)),
+                           low=config.resolve(data.get("cwd"))["low"],
                            pre_skill=os.environ.get("HSC_PRE_COMPACT_SKILL", core.PRE_COMPACT_SKILL),
                            compact_cmd=os.path.join(os.path.dirname(os.path.realpath(__file__)), "hsc-compact"))
     if debug:

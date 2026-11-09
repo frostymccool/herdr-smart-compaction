@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Show or change the smart-compaction range. Per project by default; --global needs --confirmed after the user has seen the session list."""
+import argparse, glob, json, os, subprocess, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from hsc import config, core, installer
+
+ap = argparse.ArgumentParser(description=__doc__)
+ap.add_argument("--project", default=os.getcwd(), help="project dir (default: current directory)")
+ap.add_argument("--preset", choices=sorted(config.PRESETS), help="eager 30-50, balanced 40-60, relaxed 50-70")
+ap.add_argument("--low", type=int, help="compact from this %% of the context window")
+ap.add_argument("--backstop", type=int, help="built-in auto-compact at this %% (needs a restart to apply)")
+ap.add_argument("--show", action="store_true", help="show the effective range and exit")
+ap.add_argument("--reset", action="store_true", help="remove this project's setting (falls back to global/default)")
+ap.add_argument("--global", dest="glob", action="store_true", help="change the default for ALL projects (lists every session first)")
+ap.add_argument("--confirmed", action="store_true", help="with --global: the user has seen the session list and confirmed")
+a = ap.parse_args()
+project = os.path.abspath(a.project)
+
+
+def window():
+    files = sorted(glob.glob(os.path.join(core.STATE_DIR, "*.json")), key=os.path.getmtime, reverse=True)
+    for f in files:
+        try:
+            w = json.load(open(f)).get("window")
+            if w:
+                return w
+        except (OSError, ValueError):
+            pass
+
+
+def fmt(r, w):
+    t = config.tokens(r["low"], w)
+    return "compact from %g%%%s, auto-compact backstop %g%%  [%s]" % (r["low"], " (~%s tokens)" % t if t else "", r["backstop"], r["source"])
+
+
+def sessions():
+    out = subprocess.run(["herdr", "pane", "list"], capture_output=True, text=True, timeout=15).stdout
+    try:
+        panes = json.loads(out)["result"]["panes"]
+    except (ValueError, KeyError, TypeError):
+        return []
+    return [p for p in panes if p.get("agent") == "claude"]
+
+
+cur = config.resolve(project)
+w = window()
+if a.show:
+    print(project); print(" ", fmt(cur, w))
+    sys.exit(0)
+if a.reset:
+    path = config.project_path(project)
+    if os.path.exists(path):
+        os.unlink(path)
+    print("removed project setting; now:", fmt(config.resolve(project), w))
+    sys.exit(0)
+
+if a.preset:
+    low, backstop = config.PRESETS[a.preset]
+else:
+    low = a.low if a.low is not None else int(cur["low"])
+    backstop = a.backstop if a.backstop is not None else cur["backstop"]
+    if a.low is None and a.backstop is None:
+        sys.exit("hsc-config: give --preset, --low and/or --backstop (or --show / --reset)")
+try:
+    config.validate(low, backstop)
+except ValueError as e:
+    sys.exit("hsc-config: %s" % e)
+
+if a.glob:
+    gpath = config.global_path()
+    print("GLOBAL change -> compact from %g%%, backstop %g%% for every project without its own setting.\n" % (low, backstop))
+    print("%-24s %-44s %-9s %s" % ("session", "project", "SC", "now -> after"))
+    for p in sessions():
+        d = p.get("foreground_cwd") or p.get("cwd") or "?"
+        r = config.resolve(d)
+        title = (p.get("terminal_title_stripped") or p.get("pane_id") or "?")[:24]
+        own = r["source"] in ("project", "env")
+        after = "%g-%g (unchanged, own %s setting)" % (r["low"], r["backstop"], r["source"]) if own else "%g-%g" % (low, backstop)
+        sid = (p.get("agent_session") or {}).get("value")
+        active = "active" if sid and os.path.exists(os.path.join(core.STATE_DIR, sid + ".json")) else "not seen"
+        print("%-24s %-44s %-9s %g-%g -> %s" % (title, d[-44:], active, r["low"], r["backstop"], after))
+    if not a.confirmed:
+        print("\nNOT applied. Show this list to the user; only after they confirm, re-run with --confirmed.")
+        sys.exit(3)
+    config.write(gpath, low, backstop)
+    spath = os.path.expanduser("~/.claude/settings.json")
+    new, changed = installer.set_env(installer.load(spath), installer.ENV_KEY, backstop)
+    if changed:
+        print("settings backup:", installer.save(spath, new))
+    print("global range set: %g-%g. Low applies immediately; the backstop applies to sessions after they restart." % (low, backstop))
+    sys.exit(0)
+
+config.write(config.project_path(project), low, backstop)
+spath = os.path.join(project, ".claude", "settings.local.json")
+new, changed = installer.set_env(installer.load(spath), installer.ENV_KEY, backstop)
+if changed:
+    print("settings backup:", installer.save(spath, new))
+print("project %s\n  now: %s" % (project, fmt(config.resolve(project), w)))
+print("  compaction threshold applies immediately." + ("  The backstop changed: it applies after this session restarts." if changed else ""))

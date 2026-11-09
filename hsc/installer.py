@@ -78,6 +78,16 @@ def install(settings, bd=None, backstop=60, wrap=None, pre_skill=None):
     return s, notes
 
 
+def set_env(settings, key, value):
+    """Return (new_settings, changed): set an env value, replacing any existing one."""
+    s = copy.deepcopy(settings)
+    env = s.setdefault("env", {})
+    if env.get(key) == str(value):
+        return s, False
+    env[key] = str(value)
+    return s, True
+
+
 def uninstall(settings, backstop=60):
     s = copy.deepcopy(settings)
     notes = []
@@ -143,6 +153,7 @@ def save(path, settings):
     if os.path.exists(path):
         backup = "%s.hsc-backup-%s" % (path, time.strftime("%Y%m%d-%H%M%S"))
         shutil.copy2(path, backup)
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".hsc-settings.", dir=os.path.dirname(os.path.abspath(path)))
     try:
         with os.fdopen(fd, "w") as f:

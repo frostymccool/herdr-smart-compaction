@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import json, os, subprocess, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
-from hsc import core
+from hsc import config, core
 
 raw = sys.stdin.read()
 try:
@@ -16,6 +16,15 @@ if info["session_id"] and info["pct"] is not None:
         pass
 
 badge = "SC %s%%" % round(info["pct"]) if info["pct"] is not None else "SC --"
+try:
+    ws = data.get("workspace") if isinstance(data, dict) else None
+    cwd = (ws.get("current_dir") if isinstance(ws, dict) else None) or (data.get("cwd") if isinstance(data, dict) else None)
+    rng = config.resolve(cwd)
+    bs = os.environ.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "")
+    bs = int(bs) if bs.isdigit() else rng["backstop"]
+    badge += " (%g-%g)" % (rng["low"], bs)
+except Exception:
+    pass
 badge = "\033[95m⟳ %s\033[0m" % badge
 wrapped = os.environ.get("HSC_WRAP_CMD")
 out = ""
